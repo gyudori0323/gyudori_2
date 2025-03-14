@@ -34,7 +34,7 @@ def setup_driver():
     options.add_argument('--log-level=3')
     options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.4896.127 Safari/537.36")
     
-    # ChromeDriverManager 사용 대신 직접 설치된 크롬드라이버 사용
+    # 직접 설치된 크롬드라이버 사용
     driver = webdriver.Chrome(options=options)
     return driver
 
