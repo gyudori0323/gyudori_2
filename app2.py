@@ -25,7 +25,7 @@ CONFIG_FILE = "search_config.json"
 
 # GitHub 설정
 GITHUB_USERNAME = "gyudori0323"  # 본인의 GitHub 사용자명으로 변경
-GITHUB_REPO = "gyudori_test"     # 본인의 리포지토리 이름으로 변경
+GITHUB_REPO = "gyudori_2"     # 본인의 리포지토리 이름으로 변경
 
 # 제목 및 설명
 st.title("네이버 지도 순위 검색 도구")
