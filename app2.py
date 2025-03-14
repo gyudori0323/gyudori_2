@@ -388,6 +388,28 @@ with tab3:
             st.warning(f"'{selected_keyword} - {selected_shop}'에 대한 이력 데이터가 없습니다.")
     else:
         st.warning("아직 이력 데이터가 없습니다. 검색 요청을 통해 데이터를 수집해 보세요.")
+        
+# 탭 1: 현재 순위
+with tab1:
+    st.header("검색 순위 결과")
+    
+    # 디버깅 정보 추가
+    st.write("디버깅 정보:")
+    st.write(f"데이터 디렉토리 존재 여부: {os.path.exists(DATA_DIR)}")
+    st.write(f"결과 파일 존재 여부: {os.path.exists(RESULTS_FILE)}")
+    
+    if os.path.exists(RESULTS_FILE):
+        st.write(f"결과 파일 크기: {os.path.getsize(RESULTS_FILE)} bytes")
+        try:
+            # 파일 내용 미리보기
+            with open(RESULTS_FILE, 'r', encoding='utf-8-sig') as f:
+                file_preview = f.read(500)  # 처음 500자만 읽기
+            st.write("파일 내용 미리보기:")
+            st.code(file_preview)
+        except Exception as e:
+            st.error(f"파일 읽기 오류: {e}")
+    
+    # 기존 코드 계속...
 
 # 애플리케이션 사용 방법 및 정보
 with st.expander("애플리케이션 정보"):
