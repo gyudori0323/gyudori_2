@@ -38,10 +38,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install selenium==4.10.0
-          pip install beautifulsoup4==4.11.0
-          pip install pandas==2.0.0
-          pip install webdriver-manager==3.8.0
+          pip install numpy==1.23.5  # 먼저 NumPy 설치
+          pip install pandas==1.5.3  # 그 다음 Pandas 설치
+          pip install matplotlib==3.7.1 seaborn==0.12.2
+          pip install selenium==4.10.0 beautifulsoup4==4.11.2 webdriver-manager==3.8.6
       
       - name: Check for temp search file
         id: check_temp
