@@ -10,6 +10,7 @@ import base64
 from io import BytesIO
 import time
 
+
 # 페이지 설정
 st.set_page_config(
     page_title="네이버 지도 순위 검색",
