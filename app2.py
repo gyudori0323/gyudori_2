@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 import json
+import requests
 from datetime import datetime
 import base64
 from io import BytesIO
@@ -15,17 +16,21 @@ st.set_page_config(
     layout="wide"
 )
 
-# 데이터 경로
+# 환경 변수 설정
 DATA_DIR = "data"
 RESULTS_FILE = f"{DATA_DIR}/rank_results.csv"
 HISTORY_FILE = f"{DATA_DIR}/rank_history.csv"
 CONFIG_FILE = "search_config.json"
 
+# GitHub 설정
+GITHUB_USERNAME = "gyudori0323"  # 본인의 GitHub 사용자명으로 변경
+GITHUB_REPO = "gyudori_2"     # 본인의 리포지토리 이름으로 변경
+
 # 제목 및 설명
 st.title("네이버 지도 순위 검색 도구")
 st.markdown("""
 이 앱은 네이버 지도에서 여러 키워드에 대한 업체의 검색 순위를 확인하고 시각화합니다.
-데이터는 자동으로 매일 업데이트됩니다.
+자동 업데이트 외에도 직접 검색 요청을 할 수 있습니다.
 """)
 
 # 파일 존재 여부 확인
@@ -51,6 +56,60 @@ def load_config():
         with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
             return json.load(f)
     return {"searches": []}
+
+# GitHub 관련 함수
+def create_github_issue(title, body):
+    """GitHub 이슈 생성 함수"""
+    # GitHub 토큰이 필요합니다 - Streamlit Secrets 사용 권장
+    if 'GITHUB_TOKEN' not in st.secrets:
+        st.error("GitHub 토큰이 설정되지 않았습니다. 관리자에게 문의하세요.")
+        return False
+        
+    token = st.secrets["GITHUB_TOKEN"]
+    
+    url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/issues"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {
+        "title": title,
+        "body": body,
+        "labels": ["search-request"]
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        st.error(f"GitHub 이슈 생성 중 오류 발생: {e}")
+        return False
+
+def trigger_github_action():
+    """GitHub Actions 워크플로우 수동 실행 트리거"""
+    if 'GITHUB_TOKEN' not in st.secrets:
+        st.error("GitHub 토큰이 설정되지 않았습니다. 관리자에게 문의하세요.")
+        return False
+        
+    token = st.secrets["GITHUB_TOKEN"]
+    
+    url = f"https://api.github.com/repos/{GITHUB_USERNAME}/{GITHUB_REPO}/actions/workflows/crawler.yml/dispatches"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    data = {
+        "ref": "main"
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        response.raise_for_status()
+        return True
+    except Exception as e:
+        st.error(f"GitHub Actions 트리거 오류: {e}")
+        return False
 
 # 데이터 시각화 함수들
 def plot_rank_bar_chart(df):
@@ -125,33 +184,6 @@ def plot_rank_history(history_df, keyword, shop_name):
     
     return fig
 
-def plot_keyword_comparison(df):
-    """검색어별 순위 비교 (여러 검색어에 동일 업체가 있는 경우)"""
-    # 데이터 준비 (못 찾은 경우 제외)
-    plot_df = df[df["찾음"] == True].copy()
-    if plot_df.empty:
-        return None
-    
-    # 순위 열을 숫자로 변환
-    plot_df["순위"] = plot_df["순위"].astype(int)
-    
-    # 중복된 업체가 있는지 확인
-    if plot_df["업체명"].nunique() < len(plot_df):
-        # 업체별 여러 검색어의 순위를 비교하는 그래프
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        # 피벗 테이블 생성
-        pivot_df = plot_df.pivot(index="업체명", columns="검색어", values="순위")
-        
-        # 히트맵 생성
-        sns.heatmap(pivot_df, annot=True, cmap="YlGnBu_r", ax=ax, fmt="d")
-        
-        plt.title("업체별 검색어 순위 비교")
-        plt.tight_layout()
-        
-        return fig
-    return None
-
 def get_csv_download_link(df, filename="네이버_지도_순위_결과.csv"):
     """데이터프레임을 CSV로 변환하여 다운로드 링크 생성"""
     csv = df.to_csv(index=False, encoding='utf-8-sig')
@@ -160,7 +192,7 @@ def get_csv_download_link(df, filename="네이버_지도_순위_결과.csv"):
     return href
 
 # 메인 앱 UI
-tab1, tab2, tab3 = st.tabs(["현재 순위", "검색 설정", "순위 추적"])
+tab1, tab2, tab3, tab4 = st.tabs(["현재 순위", "검색 요청", "검색 설정", "순위 추적"])
 
 # 데이터 로드
 results_df = load_results()
@@ -191,29 +223,69 @@ with tab1:
         bar_chart = plot_rank_bar_chart(results_df)
         if bar_chart:
             st.pyplot(bar_chart)
-        
-        # 검색어별 비교 (해당하는 경우)
-        keyword_chart = plot_keyword_comparison(results_df)
-        if keyword_chart:
-            st.subheader("검색어별 순위 비교")
-            st.pyplot(keyword_chart)
-            
-        # 상위 20위 내 업체 수
-        st.subheader("검색어별 상위 20위 내 업체 수")
-        top20_df = results_df[results_df["찾음"] == True].copy()
-        top20_df["순위"] = pd.to_numeric(top20_df["순위"], errors="coerce")
-        top20_df = top20_df[top20_df["순위"] <= 20]
-        top20_count = top20_df.groupby("검색어").size().reset_index(name="상위20위_업체수")
-        st.dataframe(top20_count, use_container_width=True)
     else:
         st.warning("아직 검색 결과가 없습니다. GitHub Actions가 실행되면 데이터가 업데이트됩니다.")
+        if st.button("지금 업데이트"):
+            with st.spinner("GitHub Actions 실행 요청 중..."):
+                if trigger_github_action():
+                    st.success("GitHub Actions 실행 요청을 보냈습니다. 수 분 내에 데이터가 업데이트될 예정입니다.")
+                else:
+                    st.error("GitHub Actions 실행 요청을 실패했습니다.")
 
-# 탭 2: 검색 설정
+# 탭 2: 검색 요청 (새로 추가됨)
 with tab2:
+    st.header("새 검색 요청")
+    st.markdown("""
+    새로운 검색 요청을 생성할 수 있습니다. 요청은 GitHub 이슈로 등록되며, 관리자가 확인 후 추가합니다.
+    """)
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        new_keyword = st.text_input("검색어", placeholder="예: 강남 피자")
+    
+    with col2:
+        new_shop = st.text_input("업체명", placeholder="예: 피자헛 강남점")
+    
+    request_reason = st.text_area("요청 사유 (선택사항)", placeholder="이 업체를 추가해야 하는 이유를 간략히 설명해주세요.")
+    
+    if st.button("검색 요청 제출"):
+        if not new_keyword or not new_shop:
+            st.error("검색어와 업체명을 모두 입력해주세요.")
+        else:
+            issue_title = f"검색 요청: {new_keyword} - {new_shop}"
+            issue_body = f"""
+## 검색 요청
+
+- **검색어**: {new_keyword}
+- **업체명**: {new_shop}
+- **요청 사유**: {request_reason if request_reason else '없음'}
+- **요청 시간**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+
+/cc @{GITHUB_USERNAME}
+            """
+            
+            with st.spinner("검색 요청 제출 중..."):
+                if create_github_issue(issue_title, issue_body):
+                    st.success("검색 요청이 성공적으로 제출되었습니다. 관리자가 검토 후 추가할 예정입니다.")
+                else:
+                    st.error("검색 요청 제출 중 오류가 발생했습니다.")
+    
+    # 즉시 검색 업데이트 버튼
+    st.subheader("업데이트 수동 실행")
+    if st.button("전체 검색 실행"):
+        with st.spinner("GitHub Actions 실행 요청 중..."):
+            if trigger_github_action():
+                st.success("GitHub Actions 실행 요청을 보냈습니다. 수 분 내에 데이터가 업데이트될 예정입니다.")
+            else:
+                st.error("GitHub Actions 실행 요청을 실패했습니다.")
+
+# 탭 3: 검색 설정
+with tab3:
     st.header("검색 설정")
     st.markdown("""
     현재 설정된 검색 조건을 확인할 수 있습니다.
-    검색 설정을 변경하려면 GitHub 리포지토리의 `search_config.json` 파일을 수정하세요.
+    새로운 검색어와 업체를 추가하려면 "검색 요청" 탭을 이용하세요.
     """)
     
     # 검색 설정 표시
@@ -224,8 +296,8 @@ with tab2:
     else:
         st.warning("검색 설정이 없습니다.")
 
-# 탭 3: 순위 추적
-with tab3:
+# 탭 4: 순위 추적
+with tab4:
     st.header("시간에 따른 순위 변화")
     
     if history_df is not None and not history_df.empty:
@@ -260,32 +332,20 @@ with st.expander("애플리케이션 정보"):
     
     - 이 앱은 네이버 지도 검색 결과에서 특정 업체의 순위를 확인합니다.
     - 데이터는 GitHub Actions를 통해 매일 자정(UTC 기준)에 자동으로 업데이트됩니다.
-    - 순위 데이터는 시간에 따라 변할 수 있으며, 네이버의 알고리즘 변경 등에 영향을 받을 수 있습니다.
+    - 새로운 검색어와 업체를 추가하려면 "검색 요청" 탭을 이용하세요.
     
     ### 데이터 업데이트
     
     - 마지막 업데이트 시간은 "현재 순위" 탭에서 확인할 수 있습니다.
-    - 수동으로 데이터를 업데이트하려면 GitHub 리포지토리에서 Actions 탭의 "Naver Map Rank Crawler" 워크플로우를 수동으로 실행하세요.
+    - "검색 요청" 탭에서 "전체 검색 실행" 버튼을 클릭하여 수동으로 데이터를 업데이트할 수 있습니다.
     
-    ### 검색 설정 변경
+    ### 검색 요청 방법
     
-    검색 설정을 변경하려면:
-    1. GitHub 리포지토리에서 `search_config.json` 파일을 수정합니다.
-    2. 다음 형식을 따릅니다:
-    ```json
-    {
-      "searches": [
-        {
-          "keyword": "검색어1",
-          "shop_name": "업체명1"
-        },
-        {
-          "keyword": "검색어2",
-          "shop_name": "업체명2"
-        }
-      ]
-    }
-    ```
+    1. "검색 요청" 탭으로 이동합니다.
+    2. 검색어와 업체명을 입력합니다.
+    3. 요청 사유를 간략히 설명합니다 (선택사항).
+    4. "검색 요청 제출" 버튼을 클릭합니다.
+    5. 관리자가 검토 후 업체를 추가합니다.
     """)
 
 # 푸터
