@@ -2,8 +2,19 @@ name: Naver Map Rank Crawler
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 매일 자정에 실행 (UTC 기준)
+    - cron: '0 6 * * *'  # 매일 오후 3시에 실행 (한국 시간 기준, UTC+9이므로 UTC 기준 06:00)
   workflow_dispatch:  # 수동 실행 가능
+    inputs:
+      keyword:
+        description: '검색어'
+        required: false
+      shop_name:
+        description: '업체명'
+        required: false
+      single_search:
+        description: '단일 검색 여부 (true/false)'
+        default: 'false'
+        required: false
 
 jobs:
   crawl:
@@ -31,8 +42,191 @@ jobs:
           pip install beautifulsoup4==4.11.0
           pip install pandas==2.0.0
           pip install webdriver-manager==3.8.0
+      
+      - name: Check for temp search file
+        id: check_temp
+        run: |
+          if [ -f "temp_search.json" ]; then
+            echo "::set-output name=has_temp::true"
+          else
+            echo "::set-output name=has_temp::false"
+          fi
+      
+      - name: Get temp search data
+        if: steps.check_temp.outputs.has_temp == 'true'
+        id: temp_search
+        run: |
+          KEYWORD=$(cat temp_search.json | jq -r '.keyword')
+          SHOP_NAME=$(cat temp_search.json | jq -r '.shop_name')
+          echo "::set-output name=keyword::$KEYWORD"
+          echo "::set-output name=shop_name::$SHOP_NAME"
+      
+      - name: Single search from workflow dispatch
+        if: github.event.inputs.single_search == 'true'
+        run: |
+          echo "Running single search for keyword: ${{ github.event.inputs.keyword }}, shop_name: ${{ github.event.inputs.shop_name }}"
+          python -c "
+          import sys
+          sys.path.append('.')
+          from crawler import search_single_business, setup_driver
           
-      - name: Run crawler
+          keyword = '${{ github.event.inputs.keyword }}'
+          shop_name = '${{ github.event.inputs.shop_name }}'
+          
+          driver = setup_driver()
+          try:
+              rank = search_single_business(driver, keyword, shop_name)
+              print(f'Result: {keyword} - {shop_name}: Rank {rank}')
+              
+              # Save to a temporary results file
+              import json
+              import os
+              from datetime import datetime
+              
+              os.makedirs('data', exist_ok=True)
+              
+              # Create a new result
+              result = {
+                  'keyword': keyword,
+                  'shop_name': shop_name,
+                  'rank': rank if rank > 0 else '찾을 수 없음',
+                  'found': rank > 0
+              }
+              
+              # Add to results file
+              import pandas as pd
+              
+              # Check if results file exists
+              results_file = 'data/rank_results.csv'
+              if os.path.exists(results_file):
+                  results_df = pd.read_csv(results_file)
+              else:
+                  results_df = pd.DataFrame(columns=['검색어', '업체명', '순위', '찾음'])
+              
+              # Add or update result
+              new_result = pd.DataFrame({
+                  '검색어': [keyword],
+                  '업체명': [shop_name],
+                  '순위': [rank if rank > 0 else '찾을 수 없음'],
+                  '찾음': [rank > 0]
+              })
+              
+              # Remove existing entry if any
+              results_df = results_df[~((results_df['검색어'] == keyword) & (results_df['업체명'] == shop_name))]
+              
+              # Append new result
+              results_df = pd.concat([results_df, new_result], ignore_index=True)
+              
+              # Save results
+              results_df.to_csv(results_file, index=False, encoding='utf-8-sig')
+              
+              # Add to history file
+              history_file = 'data/rank_history.csv'
+              if os.path.exists(history_file):
+                  history_df = pd.read_csv(history_file)
+              else:
+                  history_df = pd.DataFrame(columns=['검색어', '업체명', '순위', '찾음', '검색날짜'])
+              
+              # Add new entry to history
+              today = datetime.now().strftime('%Y-%m-%d')
+              history_entry = new_result.copy()
+              history_entry['검색날짜'] = today
+              
+              # Append to history
+              history_df = pd.concat([history_df, history_entry], ignore_index=True)
+              
+              # Save history
+              history_df.to_csv(history_file, index=False, encoding='utf-8-sig')
+              
+              print('Results and history updated successfully')
+          finally:
+              driver.quit()
+          "
+      
+      - name: Single search from temp file
+        if: steps.check_temp.outputs.has_temp == 'true' && github.event.inputs.single_search != 'true'
+        run: |
+          echo "Running single search from temp file for keyword: ${{ steps.temp_search.outputs.keyword }}, shop_name: ${{ steps.temp_search.outputs.shop_name }}"
+          python -c "
+          import sys
+          sys.path.append('.')
+          from crawler import search_single_business, setup_driver
+          
+          keyword = '${{ steps.temp_search.outputs.keyword }}'
+          shop_name = '${{ steps.temp_search.outputs.shop_name }}'
+          
+          driver = setup_driver()
+          try:
+              rank = search_single_business(driver, keyword, shop_name)
+              print(f'Result: {keyword} - {shop_name}: Rank {rank}')
+              
+              # Save to a temporary results file
+              import json
+              import os
+              from datetime import datetime
+              
+              os.makedirs('data', exist_ok=True)
+              
+              # Create a new result
+              result = {
+                  'keyword': keyword,
+                  'shop_name': shop_name,
+                  'rank': rank if rank > 0 else '찾을 수 없음',
+                  'found': rank > 0
+              }
+              
+              # Add to results file
+              import pandas as pd
+              
+              # Check if results file exists
+              results_file = 'data/rank_results.csv'
+              if os.path.exists(results_file):
+                  results_df = pd.read_csv(results_file)
+              else:
+                  results_df = pd.DataFrame(columns=['검색어', '업체명', '순위', '찾음'])
+              
+              # Add or update result
+              new_result = pd.DataFrame({
+                  '검색어': [keyword],
+                  '업체명': [shop_name],
+                  '순위': [rank if rank > 0 else '찾을 수 없음'],
+                  '찾음': [rank > 0]
+              })
+              
+              # Remove existing entry if any
+              results_df = results_df[~((results_df['검색어'] == keyword) & (results_df['업체명'] == shop_name))]
+              
+              # Append new result
+              results_df = pd.concat([results_df, new_result], ignore_index=True)
+              
+              # Save results
+              results_df.to_csv(results_file, index=False, encoding='utf-8-sig')
+              
+              # Add to history file
+              history_file = 'data/rank_history.csv'
+              if os.path.exists(history_file):
+                  history_df = pd.read_csv(history_file)
+              else:
+                  history_df = pd.DataFrame(columns=['검색어', '업체명', '순위', '찾음', '검색날짜'])
+              
+              # Add new entry to history
+              today = datetime.now().strftime('%Y-%m-%d')
+              history_entry = new_result.copy()
+              history_entry['검색날짜'] = today
+              
+              # Append to history
+              history_df = pd.concat([history_df, history_entry], ignore_index=True)
+              
+              # Save history
+              history_df.to_csv(history_file, index=False, encoding='utf-8-sig')
+              
+              print('Results and history updated successfully')
+          finally:
+              driver.quit()
+          "
+      
+      - name: Run full crawler
+        if: github.event.inputs.single_search != 'true' && steps.check_temp.outputs.has_temp != 'true'
         run: python crawler.py
         
       - name: Commit results
